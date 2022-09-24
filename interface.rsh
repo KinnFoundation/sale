@@ -16,7 +16,7 @@ export const State = Struct([
   ["price", UInt],
 ]);
 
-const Params = Object({
+export const Params = Object({
   tokenAmount: UInt, // token amount
   price: UInt, // price per token
 });
@@ -93,8 +93,6 @@ export const App = (map) => {
     price,
     closed: false,
   };
-
-  v.state.set(State.fromObject(initialState));
 
   const [s] = parallelReduce([initialState])
     .define(() => {
