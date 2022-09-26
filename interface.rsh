@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.1 - initial
+// Version: 0.0.2 - fix initial timeout issue
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -46,7 +46,7 @@ export const Participants = () => [
     getParams: Fun([], Params),
     signal: Fun([], Null),
   }),
-  ParticipantClass("Relay", {}),
+  Participant("Relay", {}),
 ];
 export const Views = () => [
   View({
@@ -75,11 +75,8 @@ export const App = (map) => {
       check(price > 0, "price must be greater than 0");
     })
     .timeout(relativeTime(ttl), () => {
-      Relay.only(() => {
-        const rAddr = this;
-      });
-      Relay.publish(rAddr);
-      transfer([[getUntrackedFunds(token), token]]).to(rAddr);
+      Anybody.publish(); // must be anybody
+      transfer(getUntrackedFunds(token), token).to(addr);
       commit();
       exit();
     });
@@ -181,11 +178,8 @@ export const App = (map) => {
     })
     .timeout(false);
   commit();
-  Relay.only(() => {
-    const rAddr = this;
-  });
-  Relay.publish(rAddr);
-  transfer([[getUntrackedFunds(token), token]]).to(rAddr);
+  Relay.publish();
+  transfer([[getUntrackedFunds(token), token]]).to(Relay);
   commit();
   exit();
 };
