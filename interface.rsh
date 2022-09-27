@@ -1,8 +1,8 @@
 "reach 0.1";
 "use strict";
 // -----------------------------------------------
-// Name: KINN Token Sale
-// Version: 0.0.2 - fix initial timeout issue
+// Name: KINN Token Sale (token)
+// Version: 0.0.1 - initial version
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -12,6 +12,7 @@ export const State = Struct([
   ["manager", Address],
   ["token", Token],
   ["tokenAmount", UInt],
+  ["pToken", Token],
   ["closed", Bool],
   ["price", UInt],
 ]);
@@ -62,8 +63,14 @@ export const Api = () => [
   }),
 ];
 export const App = (map) => {
-  const [{ amt, ttl, tok0: token }, [addr, _], [Manager, Relay], [v], [a], _] =
-    map;
+  const [
+    { amt, ttl, tok0: token, tok1: pToken },
+    [addr, _],
+    [Manager, Relay],
+    [v],
+    [a],
+    _,
+  ] = map;
 
   Manager.only(() => {
     const { tokenAmount, price } = declassify(interact.getParams());
@@ -76,7 +83,10 @@ export const App = (map) => {
     })
     .timeout(relativeTime(ttl), () => {
       Anybody.publish(); // must be anybody
-      transfer(getUntrackedFunds(token), token).to(addr);
+      transfer([
+        [getUntrackedFunds(token), token],
+        [getUntrackedFunds(pToken), pToken],
+      ]).to(addr);
       commit();
       exit();
     });
@@ -87,6 +97,7 @@ export const App = (map) => {
     manager: Manager,
     token,
     tokenAmount,
+    pToken,
     price,
     closed: false,
   };
@@ -104,9 +115,12 @@ export const App = (map) => {
       implies(s.closed, balance(token) == 0),
       "token balance accurate after close"
     )
+    // PAYMENT TOKEN BALANCE
+    .invariant(balance(pToken) == 0, "payment token balance accurate")
     // BALANCE
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
+    .paySpec([pToken])
     // api: update
     //  - update price
     .api_(a.update, (msg) => {
@@ -144,10 +158,10 @@ export const App = (map) => {
     .api_(a.buy, (msg) => {
       check(msg <= s.tokenAmount, "not enough tokens");
       return [
-        msg * price,
+        [0, [msg * price, pToken]],
         (k) => {
           k(null);
-          transfer(msg * price).to(s.manager);
+          transfer([[msg * price, pToken]]).to(s.manager);
           transfer(msg, token).to(this);
           return [
             {
@@ -179,7 +193,10 @@ export const App = (map) => {
     .timeout(false);
   commit();
   Relay.publish();
-  transfer([[getUntrackedFunds(token), token]]).to(Relay);
+  transfer([
+    [getUntrackedFunds(token), token],
+    [getUntrackedFunds(pToken), pToken],
+  ]).to(Relay);
   commit();
   exit();
 };
