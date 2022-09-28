@@ -12,9 +12,9 @@ export const State = Struct([
   ["manager", Address],
   ["token", Token],
   ["tokenAmount", UInt],
-  ["pToken", Token],
   ["closed", Bool],
   ["price", UInt],
+  ["pToken", Token],
 ]);
 
 export const Params = Object({
