@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.4 - allow extendable view state
+// Version: 0.0.5 - fix extendable state issues
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -23,34 +23,39 @@ export const Params = Object({
 
 // FUN
 
-const state = Fun([], State);
-const buy = Fun([UInt], Null);
+const fState = (State) => Fun([], State);
+const fBuy = Fun([UInt], Null);
+const fClose = Fun([], Null);
+const fGrant = Fun([Address], Null);
+const fUpdate = Fun([UInt], Null);
 
 // REMOTE FUN
 
-export const rState = (ctc) => {
-  const r = remote(ctc, { state });
+export const rState = (ctc, State) => {
+  const r = remote(ctc, { state: fState(State) });
   return r.state();
 };
 
 export const rBuy = (ctc) => {
-  const r = remote(ctc, { buy });
+  const r = remote(ctc, { buy: fBuy });
   return r.buy();
 };
 
 // API
 
 export const api = {
-  buy,
-  close: Fun([], Null),
-  grant: Fun([Address], Null),
-  update: Fun([UInt], Null),
+  buy: fBuy,
+  close: fClose,
+  grant: fGrant,
+  update: fUpdate
 };
 
 // VIEW
 
 export const view = state => {
-  state
+  return {
+    state,
+  };
 };
 
 // CONTRACT
@@ -63,7 +68,7 @@ export const Participants = () => [
   }),
   Participant("Relay", {}),
 ];
-export const Views = () => [View(view)];
+export const Views = () => [View(view(State))];
 export const Api = () => [API(api)];
 export const App = (map) => {
   const [{ amt, ttl, tok0: token }, [addr, _], [Manager, Relay], [v], [a], _] =
