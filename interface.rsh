@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.3 - export api and view
+// Version: 0.0.4 - allow extendable view state
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -49,8 +49,8 @@ export const api = {
 
 // VIEW
 
-export const view = {
-  state: State,
+export const view = state => {
+  state
 };
 
 // CONTRACT
