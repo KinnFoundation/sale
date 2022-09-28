@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.2 - fix initial timeout issue
+// Version: 0.0.3 - export api and view
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -38,6 +38,21 @@ export const rBuy = (ctc) => {
   return r.buy();
 };
 
+// API
+
+export const api = {
+  buy,
+  close: Fun([], Null),
+  grant: Fun([Address], Null),
+  update: Fun([UInt], Null),
+};
+
+// VIEW
+
+export const view = {
+  state: State,
+};
+
 // CONTRACT
 
 export const Event = () => [];
@@ -48,19 +63,8 @@ export const Participants = () => [
   }),
   Participant("Relay", {}),
 ];
-export const Views = () => [
-  View({
-    state: State,
-  }),
-];
-export const Api = () => [
-  API({
-    buy,
-    close: Fun([], Null),
-    grant: Fun([Address], Null),
-    update: Fun([UInt], Null),
-  }),
-];
+export const Views = () => [View(view)];
+export const Api = () => [API(api)];
 export const App = (map) => {
   const [{ amt, ttl, tok0: token }, [addr, _], [Manager, Relay], [v], [a], _] =
     map;
