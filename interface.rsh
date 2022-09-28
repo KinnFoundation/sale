@@ -2,11 +2,14 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale (token)
-// Version: 0.0.2 - use sale state
+// Version: 0.0.2 - use sale params
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
-import { State as SaleState } from '@KinnFoundation/sale#sale-v0.1.11r0:interface.rsh';
+import {
+  State as SaleState,
+  Params
+} from '@KinnFoundation/sale#sale-v0.1.11r0:interface.rsh';
 
 // TYPES
 
@@ -15,27 +18,9 @@ export const State = Struct([
   ["pToken", Token],
 ]);
 
-export const Params = Object({
-  tokenAmount: UInt, // token amount
-  price: UInt, // price per token
-});
-
 // FUN
 
-const state = Fun([], State);
-const buy = Fun([UInt], Null);
-
 // REMOTE FUN
-
-export const rState = (ctc) => {
-  const r = remote(ctc, { state });
-  return r.state();
-};
-
-export const rBuy = (ctc) => {
-  const r = remote(ctc, { buy });
-  return r.buy();
-};
 
 // CONTRACT
 
@@ -54,7 +39,7 @@ export const Views = () => [
 ];
 export const Api = () => [
   API({
-    buy,
+    buy: Fun([UInt], Null),
     close: Fun([], Null),
     grant: Fun([Address], Null),
     update: Fun([UInt], Null),
