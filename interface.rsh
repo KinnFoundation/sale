@@ -2,14 +2,16 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale (token)
-// Version: 0.0.2 - use sale params
+// Version: 0.0.3 - use sale state/params/api/view
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
 import {
   State as SaleState,
-  Params
-} from '@KinnFoundation/sale#sale-v0.1.11r0:interface.rsh';
+  Params,
+  api,
+  view
+} from '@KinnFoundation/sale#sale-v0.1.11r4:interface.rsh';
 
 // TYPES
 
@@ -17,10 +19,6 @@ export const State = Struct([
   ...Struct.fields(SaleState),
   ["pToken", Token],
 ]);
-
-// FUN
-
-// REMOTE FUN
 
 // CONTRACT
 
@@ -32,19 +30,8 @@ export const Participants = () => [
   }),
   Participant("Relay", {}),
 ];
-export const Views = () => [
-  View({
-    state: State,
-  }),
-];
-export const Api = () => [
-  API({
-    buy: Fun([UInt], Null),
-    close: Fun([], Null),
-    grant: Fun([Address], Null),
-    update: Fun([UInt], Null),
-  }),
-];
+export const Views = () => [View(view(State))];
+export const Api = () => [API(api)];
 export const App = (map) => {
   const [
     { amt, ttl, tok0: token, tok1: pToken },
