@@ -2,21 +2,23 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.5 - fix extendable state issues
+// Version: 0.0.6 - use base
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
+
+import { State as BaseState, Params as BaseParams } from '@KinnFoundation/base#base-v0.1.11r0:interface.rsh';
 
 // TYPES
 
 export const State = Struct([
-  ["manager", Address],
-  ["token", Token],
+  ...Struct.fields(BaseState),
   ["tokenAmount", UInt],
-  ["closed", Bool],
   ["price", UInt],
 ]);
 
+
 export const Params = Object({
+  ...Object.fields(BaseParams),
   tokenAmount: UInt, // token amount
   price: UInt, // price per token
 });
