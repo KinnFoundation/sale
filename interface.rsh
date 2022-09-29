@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.7 - add token to state
+// Version: 0.0.8 - fix token, use event
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -12,7 +12,7 @@ import { State as BaseState, Params as BaseParams } from '@KinnFoundation/base#b
 
 export const State = Struct([
   ...Struct.fields(BaseState),
-  ["token", UInt],
+  ["token", Token],
   ["tokenAmount", UInt],
   ["price", UInt],
 ]);
@@ -63,18 +63,17 @@ export const view = state => {
 
 // CONTRACT
 
-export const Event = () => [];
+export const Event = () => [ Events({ appLaunch: [] }) ];
 export const Participants = () => [
   Participant("Manager", {
     getParams: Fun([], Params),
-    signal: Fun([], Null),
   }),
   Participant("Relay", {}),
 ];
 export const Views = () => [View(view(State))];
 export const Api = () => [API(api)];
 export const App = (map) => {
-  const [{ amt, ttl, tok0: token }, [addr, _], [Manager, Relay], [v], [a], _] =
+  const [{ amt, ttl, tok0: token }, [addr, _], [Manager, Relay], [v], [a], [e]] =
     map;
 
   Manager.only(() => {
@@ -93,7 +92,7 @@ export const App = (map) => {
       exit();
     });
   transfer(amt).to(addr);
-  Manager.interact.signal();
+  e.appLaunch();
 
   const initialState = {
     manager: Manager,
