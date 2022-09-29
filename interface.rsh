@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.6 - use base
+// Version: 0.0.7 - add token to state
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -12,6 +12,7 @@ import { State as BaseState, Params as BaseParams } from '@KinnFoundation/base#b
 
 export const State = Struct([
   ...Struct.fields(BaseState),
+  ["token", UInt],
   ["tokenAmount", UInt],
   ["price", UInt],
 ]);
