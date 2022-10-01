@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.9 - revise,remove untracked
+// Version: 0.0.10 - add update manager check
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -137,6 +137,7 @@ export const App = (map) => {
     // api: update
     //  - update price
     .api_(a.update, (msg) => {
+      check(this === s.manager, "only manager can update");
       check(msg > 0, "price must be greater than 0");
       return [
         (k) => {
