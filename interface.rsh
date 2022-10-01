@@ -2,26 +2,37 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.8 - fix token, use event
+// Version: 0.0.9 - revise,remove untracked
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
-import { State as BaseState, Params as BaseParams } from '@KinnFoundation/base#base-v0.1.11r0:interface.rsh';
+import {
+  State as BaseState,
+  Params as BaseParams
+} from "@KinnFoundation/base#base-v0.1.11r0:interface.rsh";
 
 // TYPES
 
+export const SaleState = Struct([
+  ["token", Token], // token
+  ["tokenAmount", UInt], // token amount
+  ["price", UInt], // price
+])
+
 export const State = Struct([
   ...Struct.fields(BaseState),
-  ["token", Token],
-  ["tokenAmount", UInt],
-  ["price", UInt],
+  ...Struct.fields(SaleState),
 ]);
 
 
-export const Params = Object({
-  ...Object.fields(BaseParams),
+export const SaleParams = Object({
   tokenAmount: UInt, // token amount
   price: UInt, // price per token
+})
+
+export const Params = Object({
+  ...Object.fields(BaseParams),
+  ...Object.fields(SaleParams),
 });
 
 // FUN
@@ -50,12 +61,12 @@ export const api = {
   buy: fBuy,
   close: fClose,
   grant: fGrant,
-  update: fUpdate
+  update: fUpdate,
 };
 
 // VIEW
 
-export const view = state => {
+export const view = (state) => {
   return {
     state,
   };
@@ -63,7 +74,7 @@ export const view = state => {
 
 // CONTRACT
 
-export const Event = () => [ Events({ appLaunch: [] }) ];
+export const Event = () => [Events({ appLaunch: [] })];
 export const Participants = () => [
   Participant("Manager", {
     getParams: Fun([], Params),
@@ -73,8 +84,14 @@ export const Participants = () => [
 export const Views = () => [View(view(State))];
 export const Api = () => [API(api)];
 export const App = (map) => {
-  const [{ amt, ttl, tok0: token }, [addr, _], [Manager, Relay], [v], [a], [e]] =
-    map;
+  const [
+    { amt, ttl, tok0: token },
+    [addr, _],
+    [Manager, Relay],
+    [v],
+    [a],
+    [e],
+  ] = map;
 
   Manager.only(() => {
     const { tokenAmount, price } = declassify(interact.getParams());
@@ -86,8 +103,7 @@ export const App = (map) => {
       check(price > 0, "price must be greater than 0");
     })
     .timeout(relativeTime(ttl), () => {
-      Anybody.publish(); // must be anybody
-      transfer(getUntrackedFunds(token), token).to(addr);
+      Anybody.publish();
       commit();
       exit();
     });
@@ -137,7 +153,7 @@ export const App = (map) => {
     // api: grant
     //  - asign another account as manager
     .api_(a.grant, (msg) => {
-      check(this === s.manager);
+      check(this === s.manager, "only manager can grant");
       return [
         (k) => {
           k(null);
@@ -172,7 +188,7 @@ export const App = (map) => {
     // api: close
     //  - close contract
     .api_(a.close, () => {
-      check(this == s.manager);
+      check(this == s.manager, "only manager can close");
       return [
         (k) => {
           k(null);
@@ -190,7 +206,6 @@ export const App = (map) => {
     .timeout(false);
   commit();
   Relay.publish();
-  transfer([[getUntrackedFunds(token), token]]).to(Relay);
   commit();
   exit();
 };
