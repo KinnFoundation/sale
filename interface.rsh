@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.11 - add serial version
+// Version: 0.1.0 - add apis
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -13,7 +13,7 @@ import {
 
 // CONSTANTS
 
-const SERIAL_VER = 1;
+const SERIAL_VER = 0;
 
 // TYPES
 
@@ -45,6 +45,9 @@ const fBuy = Fun([UInt], Null);
 const fClose = Fun([], Null);
 const fGrant = Fun([Address], Null);
 const fUpdate = Fun([UInt], Null);
+const fDeposit = Fun([UInt], Null);
+const fWithdraw = Fun([UInt], Null);
+const fTouch = Fun([], Null);
 
 // REMOTE FUN
 
@@ -65,6 +68,9 @@ export const api = {
   close: fClose,
   grant: fGrant,
   update: fUpdate,
+  deposit: fDeposit,
+  withdraw: fWithdraw,
+  touch: fTouch,
 };
 
 // VIEW
@@ -137,6 +143,64 @@ export const App = (map) => {
     // BALANCE
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
+    .paySpec([token])
+    // api: touch
+    .api_(a.touch, () => {
+      check(this == s.manager, "only manager can touch");
+      return [
+        (k) => {
+          k(null);
+          transfer(getUntrackedFunds()).to(s.manager);
+          const utf = getUntrackedFunds(token);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount + utf,
+            }
+          ]
+        },
+      ];
+    })
+    // api: deposit
+    //  - deposit tokens
+    .api_(a.deposit, (msg) => {
+      check(this == s.manager, "only manager can deposit");
+      check(msg > 0, "deposit must be greater than 0");
+      return [
+        [0, [msg, token]],
+        (k) => {
+          k(null);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount + msg,
+            },
+          ];
+        },
+      ];
+    })
+    // api: withdraw
+    //  - withdraw tokens
+    .api_(a.withdraw, (msg) => {
+      check(this == s.manager, "only manager can withdraw");
+      check(msg > 0, "withdraw must be greater than 0");
+      check(
+        msg <= s.tokenAmount,
+        "withdraw must be less than or equal to token amount"
+      );
+      return [
+        (k) => {
+          k(null);
+          transfer([[msg, token]]).to(s.manager);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount - msg,
+            },
+          ];
+        },
+      ];
+    })
     // api: update
     //  - update price
     .api_(a.update, (msg) => {
@@ -175,7 +239,7 @@ export const App = (map) => {
     .api_(a.buy, (msg) => {
       check(msg <= s.tokenAmount, "not enough tokens");
       return [
-        msg * price,
+        [msg * price, [0, token]],
         (k) => {
           k(null);
           transfer(msg * price).to(s.manager);
