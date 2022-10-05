@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.10 - add update manager check
+// Version: 0.0.11 - add serial version
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -11,24 +11,27 @@ import {
   Params as BaseParams
 } from "@KinnFoundation/base#base-v0.1.11r0:interface.rsh";
 
+// CONSTANTS
+
+const SERIAL_VER = 1;
+
 // TYPES
 
 export const SaleState = Struct([
   ["token", Token], // token
   ["tokenAmount", UInt], // token amount
   ["price", UInt], // price
-])
+]);
 
 export const State = Struct([
   ...Struct.fields(BaseState),
   ...Struct.fields(SaleState),
 ]);
 
-
 export const SaleParams = Object({
   tokenAmount: UInt, // token amount
   price: UInt, // price per token
-})
+});
 
 export const Params = Object({
   ...Object.fields(BaseParams),
@@ -97,7 +100,7 @@ export const App = (map) => {
     const { tokenAmount, price } = declassify(interact.getParams());
   });
   Manager.publish(tokenAmount, price)
-    .pay([amt, [tokenAmount, token]])
+    .pay([amt + SERIAL_VER, [tokenAmount, token]])
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
       check(price > 0, "price must be greater than 0");
@@ -107,7 +110,7 @@ export const App = (map) => {
       commit();
       exit();
     });
-  transfer(amt).to(addr);
+  transfer(amt + SERIAL_VER).to(addr);
   e.appLaunch();
 
   const initialState = {
