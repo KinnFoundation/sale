@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.1.0 - add apis
+// Version: 0.1.1 - add token supply
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -20,6 +20,7 @@ const SERIAL_VER = 0;
 export const SaleState = Struct([
   ["token", Token], // token
   ["tokenAmount", UInt], // token amount
+  ["tokenSupply", UInt], // token supply
   ["price", UInt], // price
 ]);
 
@@ -123,6 +124,7 @@ export const App = (map) => {
     manager: Manager,
     token,
     tokenAmount,
+    tokenSupply: tokenAmount,
     price,
     closed: false,
   };
@@ -156,6 +158,7 @@ export const App = (map) => {
             {
               ...s,
               tokenAmount: s.tokenAmount + utf,
+              tokenSupply: s.tokenSupply + utf,
             }
           ]
         },
@@ -174,6 +177,7 @@ export const App = (map) => {
             {
               ...s,
               tokenAmount: s.tokenAmount + msg,
+              tokenSupply: s.tokenSupply + msg,
             },
           ];
         },
@@ -196,6 +200,7 @@ export const App = (map) => {
             {
               ...s,
               tokenAmount: s.tokenAmount - msg,
+              tokenSupply: s.tokenSupply - msg,
             },
           ];
         },
@@ -266,6 +271,7 @@ export const App = (map) => {
               ...s,
               closed: true,
               tokenAmount: 0,
+              tokenSupply: 0,
             },
           ];
         },
