@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.0.10 - add update manager check
+// Version: 0.1.2 - add token unit
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -11,24 +11,30 @@ import {
   Params as BaseParams
 } from "@KinnFoundation/base#base-v0.1.11r0:interface.rsh";
 
+// CONSTANTS
+
+const SERIAL_VER = 0;
+
 // TYPES
 
 export const SaleState = Struct([
   ["token", Token], // token
   ["tokenAmount", UInt], // token amount
+  ["tokenUnit", UInt], // token unit
+  ["tokenSupply", UInt], // token supply
   ["price", UInt], // price
-])
+]);
 
 export const State = Struct([
   ...Struct.fields(BaseState),
   ...Struct.fields(SaleState),
 ]);
 
-
 export const SaleParams = Object({
   tokenAmount: UInt, // token amount
+  tokenUnit: UInt, // token unit
   price: UInt, // price per token
-})
+});
 
 export const Params = Object({
   ...Object.fields(BaseParams),
@@ -41,7 +47,11 @@ const fState = (State) => Fun([], State);
 const fBuy = Fun([UInt], Null);
 const fClose = Fun([], Null);
 const fGrant = Fun([Address], Null);
-const fUpdate = Fun([UInt], Null);
+const fUpdatePrice = Fun([UInt], Null);
+const fUpdateTokenUnit = Fun([UInt], Null);
+const fDeposit = Fun([UInt], Null);
+const fWithdraw = Fun([UInt], Null);
+const fTouch = Fun([], Null);
 
 // REMOTE FUN
 
@@ -61,7 +71,11 @@ export const api = {
   buy: fBuy,
   close: fClose,
   grant: fGrant,
-  update: fUpdate,
+  updatePrice: fUpdatePrice,
+  updateTokenUnit: fUpdateTokenUnit,
+  deposit: fDeposit,
+  withdraw: fWithdraw,
+  touch: fTouch,
 };
 
 // VIEW
@@ -94,26 +108,33 @@ export const App = (map) => {
   ] = map;
 
   Manager.only(() => {
-    const { tokenAmount, price } = declassify(interact.getParams());
+    const { tokenAmount, tokenUnit, price } = declassify(interact.getParams());
   });
-  Manager.publish(tokenAmount, price)
-    .pay([amt, [tokenAmount, token]])
+  Manager.publish(tokenAmount, tokenUnit, price)
+    .pay([amt + SERIAL_VER, [tokenAmount, token]])
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
       check(price > 0, "price must be greater than 0");
+      check(tokenUnit > 0, "tokenUnit must be greater than 0");
+      check(
+        tokenAmount % tokenUnit === 0,
+        "tokenAmount must be divisible by tokenUnit"
+      );
     })
     .timeout(relativeTime(ttl), () => {
       Anybody.publish();
       commit();
       exit();
     });
-  transfer(amt).to(addr);
+  transfer(amt + SERIAL_VER).to(addr);
   e.appLaunch();
 
   const initialState = {
     manager: Manager,
     token,
     tokenAmount,
+    tokenUnit,
+    tokenSupply: tokenAmount,
     price,
     closed: false,
   };
@@ -134,9 +155,65 @@ export const App = (map) => {
     // BALANCE
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
+    .paySpec([token])
+    // api: touch
+    .api_(a.touch, () => {
+      check(this == s.manager, "only manager can touch");
+      return [
+        (k) => {
+          k(null);
+          transfer([getUntrackedFunds(), [getUntrackedFunds(token), token]]).to(
+            s.manager
+          );
+          return [s];
+        },
+      ];
+    })
+    // api: deposit
+    //  - deposit tokens
+    .api_(a.deposit, (msg) => {
+      check(this == s.manager, "only manager can deposit");
+      check(msg > 0, "deposit must be greater than 0");
+      return [
+        [0, [msg * s.tokenUnit, token]],
+        (k) => {
+          k(null);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount + msg * s.tokenUnit,
+              tokenSupply: s.tokenSupply + msg * s.tokenUnit,
+            },
+          ];
+        },
+      ];
+    })
+    // api: withdraw
+    //  - withdraw tokens
+    .api_(a.withdraw, (msg) => {
+      check(this == s.manager, "only manager can withdraw");
+      check(msg > 0, "withdraw must be greater than 0");
+      check(
+        msg * s.tokenUnit <= s.tokenAmount,
+        "withdraw must be less than or equal to token amount"
+      );
+      return [
+        (k) => {
+          k(null);
+          transfer([[msg * s.tokenUnit, token]]).to(s.manager);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
+              tokenSupply: s.tokenSupply - msg * s.tokenUnit,
+            },
+          ];
+        },
+      ];
+    })
     // api: update
     //  - update price
-    .api_(a.update, (msg) => {
+    .api_(a.updatePrice, (msg) => {
       check(this === s.manager, "only manager can update");
       check(msg > 0, "price must be greater than 0");
       return [
@@ -146,6 +223,22 @@ export const App = (map) => {
             {
               ...s,
               price: msg,
+            },
+          ];
+        },
+      ];
+    })
+    .api_(a.updateTokenUnit, (msg) => {
+      check(this === s.manager, "only manager can update");
+      check(msg > 0, "tokenUnit must be greater than 0");
+      check(s.tokenAmount % msg === 0, "tokenAmount must be divisible by tokenUnit");
+      return [
+        (k) => {
+          k(null);
+          return [
+            {
+              ...s,
+              tokenUnit: msg,
             },
           ];
         },
@@ -170,17 +263,17 @@ export const App = (map) => {
     // api: buy
     //  - buy token
     .api_(a.buy, (msg) => {
-      check(msg <= s.tokenAmount, "not enough tokens");
+      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
       return [
-        msg * price,
+        [msg * s.price, [0, token]],
         (k) => {
           k(null);
-          transfer(msg * price).to(s.manager);
-          transfer(msg, token).to(this);
+          transfer(msg * s.price).to(s.manager);
+          transfer(msg * s.tokenUnit, token).to(this);
           return [
             {
               ...s,
-              tokenAmount: s.tokenAmount - msg,
+              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
             },
           ];
         },
@@ -199,6 +292,7 @@ export const App = (map) => {
               ...s,
               closed: true,
               tokenAmount: 0,
+              tokenSupply: 0,
             },
           ];
         },
