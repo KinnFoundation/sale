@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale (token)
-// Version: 0.0.3 - use sale state/params/api/view
+// Version: 0.1.0 - use events
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -11,22 +11,22 @@ import {
   Params,
   api,
   view
-} from '@KinnFoundation/sale#sale-v0.1.11r4:interface.rsh';
+} from "@KinnFoundation/sale#sale-v0.1.11r12:interface.rsh";
+
+// CONSTANTS
+
+const SERIAL_VER = 0;
 
 // TYPES
 
-export const State = Struct([
-  ...Struct.fields(SaleState),
-  ["pToken", Token],
-]);
+export const State = Struct([...Struct.fields(SaleState), ["pToken", Token]]);
 
 // CONTRACT
 
-export const Event = () => [];
+export const Event = () => [Events({ appLaunch: [] })];
 export const Participants = () => [
   Participant("Manager", {
     getParams: Fun([], Params),
-    signal: Fun([], Null),
   }),
   Participant("Relay", {}),
 ];
@@ -39,37 +39,36 @@ export const App = (map) => {
     [Manager, Relay],
     [v],
     [a],
-    _,
+    [e],
   ] = map;
 
   Manager.only(() => {
-    const { tokenAmount, price } = declassify(interact.getParams());
+    const { tokenAmount, tokenUnit, price } = declassify(interact.getParams());
   });
-  Manager.publish(tokenAmount, price)
-    .pay([amt, [tokenAmount, token]])
+  Manager.publish(tokenAmount, tokenUnit, price)
+    .pay([amt + SERIAL_VER, [tokenAmount, token]])
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
       check(price > 0, "price must be greater than 0");
+      check(tokenUnit > 0, "tokenUnit must be greater than 0");
     })
     .timeout(relativeTime(ttl), () => {
-      Anybody.publish(); // must be anybody
-      transfer([
-        [getUntrackedFunds(token), token],
-        [getUntrackedFunds(pToken), pToken],
-      ]).to(addr);
+      Anybody.publish();
       commit();
       exit();
     });
-  transfer(amt).to(addr);
-  Manager.interact.signal();
+  transfer(amt + SERIAL_VER).to(addr);
+  e.appLaunch();
 
   const initialState = {
     manager: Manager,
+    closed: false,
     token,
     tokenAmount,
-    pToken,
+    tokenUnit,
+    tokenSupply: tokenAmount,
     price,
-    closed: false,
+    pToken,
   };
 
   const [s] = parallelReduce([initialState])
@@ -90,10 +89,65 @@ export const App = (map) => {
     // BALANCE
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
-    .paySpec([pToken])
+    .paySpec([pToken, token])
+    // api: touch
+    .api_(a.touch, () => {
+      check(this == s.manager, "only manager can touch");
+      return [
+        (k) => {
+          k(null);
+          transfer([getUntrackedFunds(), [getUntrackedFunds(pToken), pToken], [getUntrackedFunds(token), token]]).to(
+            s.manager
+          );
+          return [s];
+        },
+      ];
+    })
+    // api: deposit
+    //  - deposit tokens
+    .api_(a.deposit, (msg) => {
+      check(this == s.manager, "only manager can deposit");
+      check(msg > 0, "deposit must be greater than 0");
+      return [
+        [0, [0, pToken], [msg * s.tokenUnit, token]],
+        (k) => {
+          k(null);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount + msg * s.tokenUnit,
+              tokenSupply: s.tokenSupply + msg * s.tokenUnit,
+            },
+          ];
+        },
+      ];
+    })
+    // api: withdraw
+    //  - withdraw tokens
+    .api_(a.withdraw, (msg) => {
+      check(this == s.manager, "only manager can withdraw");
+      check(msg > 0, "withdraw must be greater than 0");
+      check(
+        msg * s.tokenUnit <= s.tokenAmount,
+        "withdraw must be less than or equal to token amount"
+      );
+      return [
+        (k) => {
+          k(null);
+          transfer([[msg * s.tokenUnit, token]]).to(s.manager);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
+              tokenSupply: s.tokenSupply - msg * s.tokenUnit,
+            },
+          ];
+        },
+      ];
+    })
     // api: update
     //  - update price
-    .api_(a.update, (msg) => {
+    .api_(a.updatePrice, (msg) => {
       check(msg > 0, "price must be greater than 0");
       return [
         (k) => {
@@ -102,6 +156,27 @@ export const App = (map) => {
             {
               ...s,
               price: msg,
+            },
+          ];
+        },
+      ];
+    })
+    // api: update
+    // - update token unit
+    .api_(a.updateTokenUnit, (msg) => {
+      check(this === s.manager, "only manager can update");
+      check(msg > 0, "tokenUnit must be greater than 0");
+      check(
+        s.tokenAmount % msg === 0,
+        "tokenAmount must be divisible by tokenUnit"
+      );
+      return [
+        (k) => {
+          k(null);
+          return [
+            {
+              ...s,
+              tokenUnit: msg,
             },
           ];
         },
@@ -126,17 +201,17 @@ export const App = (map) => {
     // api: buy
     //  - buy token
     .api_(a.buy, (msg) => {
-      check(msg <= s.tokenAmount, "not enough tokens");
+      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
       return [
-        [0, [msg * price, pToken]],
+        [0, [msg * s.price, pToken], [0, token]],
         (k) => {
           k(null);
-          transfer([[msg * price, pToken]]).to(s.manager);
-          transfer(msg, token).to(this);
+          transfer([[msg * s.price, pToken]]).to(s.manager);
+          transfer(msg * s.tokenUnit, token).to(this);
           return [
             {
               ...s,
-              tokenAmount: s.tokenAmount - msg,
+              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
             },
           ];
         },
@@ -163,10 +238,6 @@ export const App = (map) => {
     .timeout(false);
   commit();
   Relay.publish();
-  transfer([
-    [getUntrackedFunds(token), token],
-    [getUntrackedFunds(pToken), pToken],
-  ]).to(Relay);
   commit();
   exit();
 };
