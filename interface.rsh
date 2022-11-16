@@ -15,7 +15,7 @@ import {
 
 // CONSTANTS
 
-const SERIAL_VER = 0;
+const SERIAL_VER = 1;
 
 // TYPES
 
