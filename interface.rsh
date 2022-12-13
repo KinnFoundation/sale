@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.1.2 - add token unit
+// Version: 0.1.4 - add adjustable fee
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -23,6 +23,7 @@ export const SaleState = Struct([
   ["tokenUnit", UInt], // token unit
   ["tokenSupply", UInt], // token supply
   ["price", UInt], // price
+  ["rate", UInt], // rate
 ]);
 
 export const State = Struct([
@@ -34,6 +35,7 @@ export const SaleParams = Object({
   tokenAmount: UInt, // token amount
   tokenUnit: UInt, // token unit
   price: UInt, // price per token
+  rate: UInt, // rate per token
 });
 
 export const Params = Object({
@@ -108,9 +110,11 @@ export const App = (map) => {
   ] = map;
 
   Manager.only(() => {
-    const { tokenAmount, tokenUnit, price } = declassify(interact.getParams());
+    const { tokenAmount, tokenUnit, price, rate } = declassify(
+      interact.getParams()
+    );
   });
-  Manager.publish(tokenAmount, tokenUnit, price)
+  Manager.publish(tokenAmount, tokenUnit, price, rate)
     .pay([amt + SERIAL_VER, [tokenAmount, token]])
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
@@ -120,6 +124,8 @@ export const App = (map) => {
         tokenAmount % tokenUnit === 0,
         "tokenAmount must be divisible by tokenUnit"
       );
+      check(rate >= 1, "rate must be greater than or equal to 1");
+      check(rate <= 400, "rate must be less than or equal to 400");
     })
     .timeout(relativeTime(ttl), () => {
       Anybody.publish();
@@ -137,6 +143,7 @@ export const App = (map) => {
     tokenSupply: tokenAmount,
     price,
     closed: false,
+    rate,
   };
 
   const [s] = parallelReduce([initialState])
@@ -231,7 +238,10 @@ export const App = (map) => {
     .api_(a.updateTokenUnit, (msg) => {
       check(this === s.manager, "only manager can update");
       check(msg > 0, "tokenUnit must be greater than 0");
-      check(s.tokenAmount % msg === 0, "tokenAmount must be divisible by tokenUnit");
+      check(
+        s.tokenAmount % msg === 0,
+        "tokenAmount must be divisible by tokenUnit"
+      );
       return [
         (k) => {
           k(null);
@@ -268,7 +278,9 @@ export const App = (map) => {
         [msg * s.price, [0, token]],
         (k) => {
           k(null);
-          transfer(msg * s.price).to(s.manager);
+          const fee = (rate * msg * s.price) / 400; // > 0.25%
+          transfer(msg * s.price - fee).to(s.manager);
+          transfer(fee).to(addr);
           transfer(msg * s.tokenUnit, token).to(this);
           return [
             {
