@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale (token)
-// Version: 0.1.1 - add unclaimed
+// Version: 0.1.2 - add safe buy
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -28,6 +28,7 @@ export const State = Struct([
 // FUN
 
 const fClaim = Fun([], Null);
+const fSafeBuy = Fun([UInt], Null);
 
 // CONTRACT
 
@@ -39,7 +40,7 @@ export const Participants = () => [
   Participant("Relay", {}),
 ];
 export const Views = () => [View(view(State))];
-export const Api = () => [API({ ...api, claim: fClaim })];
+export const Api = () => [API({ ...api, safeBuy: fSafeBuy, claim: fClaim })];
 export const App = (map) => {
   const [
     { amt, ttl, tok0: token, tok1: pToken },
@@ -215,8 +216,8 @@ export const App = (map) => {
       ];
     })
     // api: buy
-    //  - buy token
-    .api_(a.buy, (msg) => {
+    //  - buy token (safe)
+    .api_(a.safeBuy, (msg) => {
       check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
       return [
         [0, [msg * s.price, pToken], [0, token]],
@@ -230,6 +231,28 @@ export const App = (map) => {
               ...s,
               tokenAmount: s.tokenAmount - msg * s.tokenUnit,
               unclaimed: s.unclaimed + fee,
+            },
+          ];
+        },
+      ];
+    })
+    // api: buy
+    //  - buy token
+    .api_(a.buy, (msg) => {
+      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
+      return [
+        [0, [msg * s.price, pToken], [0, token]],
+        (k) => {
+          k(null);
+          const fee = (rate * msg * s.price) / 400; // > 0.25%
+          transfer([[msg * s.price - fee, pToken]]).to(s.manager);
+          transfer(msg * s.tokenUnit, token).to(this);
+          transfer([[fee + s.unclaimed, pToken]]).to(addr);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
+              unclaimed: 0
             },
           ];
         },
