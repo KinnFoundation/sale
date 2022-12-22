@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale (token)
-// Version: 0.1.0 - use events
+// Version: 0.1.2 - add safe buy
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -11,7 +11,7 @@ import {
   Params,
   api,
   view
-} from "@KinnFoundation/sale#sale-v0.1.11r12:interface.rsh";
+} from "@KinnFoundation/sale#sale-v0.1.11r13:interface.rsh";
 
 // CONSTANTS
 
@@ -19,7 +19,16 @@ const SERIAL_VER = 1;
 
 // TYPES
 
-export const State = Struct([...Struct.fields(SaleState), ["pToken", Token]]);
+export const State = Struct([
+  ...Struct.fields(SaleState),
+  ["pToken", Token],
+  ["unclaimed", UInt],
+]);
+
+// FUN
+
+const fClaim = Fun([], Null);
+const fSafeBuy = Fun([UInt], Null);
 
 // CONTRACT
 
@@ -31,7 +40,7 @@ export const Participants = () => [
   Participant("Relay", {}),
 ];
 export const Views = () => [View(view(State))];
-export const Api = () => [API(api)];
+export const Api = () => [API({ ...api, safeBuy: fSafeBuy, claim: fClaim })];
 export const App = (map) => {
   const [
     { amt, ttl, tok0: token, tok1: pToken },
@@ -43,14 +52,18 @@ export const App = (map) => {
   ] = map;
 
   Manager.only(() => {
-    const { tokenAmount, tokenUnit, price } = declassify(interact.getParams());
+    const { tokenAmount, tokenUnit, price, rate } = declassify(
+      interact.getParams()
+    );
   });
-  Manager.publish(tokenAmount, tokenUnit, price)
+  Manager.publish(tokenAmount, tokenUnit, price, rate)
     .pay([amt + SERIAL_VER, [tokenAmount, token]])
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
       check(price > 0, "price must be greater than 0");
       check(tokenUnit > 0, "tokenUnit must be greater than 0");
+      check(rate >= 1, "rate must be greater than or equal to 1");
+      check(rate <= 400, "rate must be less than or equal to 400");
     })
     .timeout(relativeTime(ttl), () => {
       Anybody.publish();
@@ -69,6 +82,8 @@ export const App = (map) => {
     tokenSupply: tokenAmount,
     price,
     pToken,
+    rate,
+    unclaimed: 0,
   };
 
   const [s] = parallelReduce([initialState])
@@ -85,7 +100,7 @@ export const App = (map) => {
       "token balance accurate after close"
     )
     // PAYMENT TOKEN BALANCE
-    .invariant(balance(pToken) == 0, "payment token balance accurate")
+    .invariant(balance(pToken) == s.unclaimed, "payment token balance accurate")
     // BALANCE
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
@@ -96,9 +111,11 @@ export const App = (map) => {
       return [
         (k) => {
           k(null);
-          transfer([getUntrackedFunds(), [getUntrackedFunds(pToken), pToken], [getUntrackedFunds(token), token]]).to(
-            s.manager
-          );
+          transfer([
+            getUntrackedFunds(),
+            [getUntrackedFunds(pToken), pToken],
+            [getUntrackedFunds(token), token],
+          ]).to(s.manager);
           return [s];
         },
       ];
@@ -199,6 +216,27 @@ export const App = (map) => {
       ];
     })
     // api: buy
+    //  - buy token (safe)
+    .api_(a.safeBuy, (msg) => {
+      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
+      return [
+        [0, [msg * s.price, pToken], [0, token]],
+        (k) => {
+          k(null);
+          const fee = (rate * msg * s.price) / 400; // > 0.25%
+          transfer([[msg * s.price - fee, pToken]]).to(s.manager);
+          transfer(msg * s.tokenUnit, token).to(this);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
+              unclaimed: s.unclaimed + fee,
+            },
+          ];
+        },
+      ];
+    })
+    // api: buy
     //  - buy token
     .api_(a.buy, (msg) => {
       check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
@@ -206,12 +244,15 @@ export const App = (map) => {
         [0, [msg * s.price, pToken], [0, token]],
         (k) => {
           k(null);
-          transfer([[msg * s.price, pToken]]).to(s.manager);
+          const fee = (rate * msg * s.price) / 400; // > 0.25%
+          transfer([[msg * s.price - fee, pToken]]).to(s.manager);
           transfer(msg * s.tokenUnit, token).to(this);
+          transfer([[fee + s.unclaimed, pToken]]).to(addr);
           return [
             {
               ...s,
               tokenAmount: s.tokenAmount - msg * s.tokenUnit,
+              unclaimed: 0
             },
           ];
         },
@@ -235,9 +276,26 @@ export const App = (map) => {
         },
       ];
     })
+    // api: claim
+    //  - claim unclaimed funds before close
+    .api_(a.claim, () => {
+      return [
+        (k) => {
+          k(null);
+          transfer([[s.unclaimed, pToken]]).to(addr);
+          return [
+            {
+              ...s,
+              unclaimed: 0,
+            },
+          ];
+        },
+      ];
+    })
     .timeout(false);
   commit();
   Relay.publish();
+  transfer([[s.unclaimed, pToken]]).to(addr);
   commit();
   exit();
 };
