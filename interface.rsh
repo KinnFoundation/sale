@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.2.0 - add remote buy
+// Version: 0.3.0 - add direct remote token buy
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -14,11 +14,12 @@ import {
   baseState,
   baseEvents,
   MContract,
+  MToken,
   max,
   min
 } from "@KinnFoundation/base#base-v0.1.11r16:interface.rsh";
 
-import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r1:interface.rsh";
+import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r2:interface.rsh";
 
 // CONSTANTS
 
@@ -33,13 +34,21 @@ export const SaleState = Struct([
   ["rate", UInt], // rate
 ]);
 
-export const RemoteState = Struct([["remoteCtc", Contract]]);
+export const RemoteState = Struct([
+  ["remoteCtc", Contract],
+  ["remoteToken", Token],
+]);
+
+export const SafeState = Struct([
+  ["safeAmount", UInt],
+]);
 
 export const State = Struct([
   ...Struct.fields(BaseState),
   ...Struct.fields(TokenState),
   ...Struct.fields(SaleState),
   ...Struct.fields(RemoteState),
+  ...Struct.fields(SafeState),
 ]);
 
 export const SaleParams = Object({
@@ -63,6 +72,8 @@ export const Params = Object({
 
 const fBuy = Fun([Address, UInt], Null);
 const fBuyRemote = Fun([Address, UInt, UInt], Null);
+const fBuyRemoteToken = Fun([Address, UInt], Null);
+const fSafeBuyRemoteToken = Fun([Address, UInt], Null);
 const fClose = Fun([Address], Null); // manager only
 const fGrant = Fun([Address], Null); // manager only
 const fUpdatePrice = Fun([UInt], Null); // manager only
@@ -82,13 +93,25 @@ export const rBuy = (ctc, addr, amt) => {
 export const rBuyRemote = (ctc, addr, amt, cap) => {
   const r = remote(ctc, { buyRemote: fBuyRemote });
   return r.buyRemote(addr, amt, cap);
-}
+};
+
+export const rBuyRemoteToken = (ctc, addr, amt) => {
+  const r = remote(ctc, { buyRemoteToken: fBuyRemoteToken });
+  return r.buyRemote(addr, amt);
+};
+
+export const rSafeBuyRemoteToken = (ctc, addr, amt) => {
+  const r = remote(ctc, { safeBuyRemoteToken: fSafeBuyRemoteToken });
+  return r.buyRemote(addr, amt);
+};
 
 // API
 
 export const api = {
   buy: fBuy,
   buyRemote: fBuyRemote,
+  buyRemoteToken: fBuyRemoteToken,
+  safeBuyRemoteToken: fSafeBuyRemoteToken,
   close: fClose,
   grant: fGrant,
   updatePrice: fUpdatePrice,
@@ -112,7 +135,7 @@ export const Views = () => [View(view(State))];
 export const Api = () => [API(api)];
 export const App = (map) => {
   const [
-    { amt, ttl, tok0: token },
+    { amt, ttl, tok0: token, tok1: pToken },
     [addr, _],
     [Manager, Relay],
     [v],
@@ -154,10 +177,24 @@ export const App = (map) => {
     tokenSupply: tokenAmount,
     price,
     rate,
-    remoteCtc
+    remoteCtc,
+    remoteToken: pToken,
+    safeAmount: 0,
   };
 
-  const [s, mctc] = parallelReduce([initialState, MContract.Some(remoteCtc)])
+  const [initialMCtc, initialMToken] = ((thisCtc) => {
+    if (thisCtc != remoteCtc) {
+      return [MContract.Some(thisCtc), MToken.Some(token)];
+    } else {
+      return [MContract.None(), MToken.None()];
+    }
+  })(getContract());
+
+  const [s, mctc, rtok] = parallelReduce([
+    initialState,
+    initialMCtc,
+    initialMToken,
+  ])
     .define(() => {
       v.state.set(State.fromObject(s));
     })
@@ -170,20 +207,27 @@ export const App = (map) => {
       implies(s.closed, balance(token) == 0),
       "token balance accurate after close"
     )
+    // P-TOKEN BALANCE
+    .invariant(
+      balance(pToken) == s.safeAmount,
+      "payment token balance accurate"
+    )
     // BALANCE
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
-    .paySpec([token])
+    .paySpec([token, pToken])
     // api: touch
     .api_(a.touch, (recv) => {
       check(this == s.manager, "only manager can touch");
       return [
         (k) => {
           k(null);
-          transfer([getUntrackedFunds(), [getUntrackedFunds(token), token]]).to(
-            recv
-          );
-          return [s, mctc];
+          transfer([
+            getUntrackedFunds(),
+            [getUntrackedFunds(token), token],
+            [getUntrackedFunds(pToken), pToken],
+          ]).to(recv);
+          return [s, mctc, rtok];
         },
       ];
     })
@@ -193,7 +237,7 @@ export const App = (map) => {
       check(this == s.manager, "only manager can deposit");
       check(msg > 0, "deposit must be greater than 0");
       return [
-        [0, [msg * s.tokenUnit, token]],
+        [0, [msg * s.tokenUnit, token], [0, pToken]],
         (k) => {
           k(null);
           return [
@@ -203,6 +247,7 @@ export const App = (map) => {
               tokenSupply: s.tokenSupply + msg * s.tokenUnit,
             },
             mctc,
+            rtok,
           ];
         },
       ];
@@ -227,6 +272,7 @@ export const App = (map) => {
               tokenSupply: s.tokenSupply - msg * s.tokenUnit,
             },
             mctc,
+            rtok,
           ];
         },
       ];
@@ -245,6 +291,7 @@ export const App = (map) => {
               price: msg,
             },
             mctc,
+            rtok,
           ];
         },
       ];
@@ -267,21 +314,38 @@ export const App = (map) => {
               tokenUnit: msg,
             },
             mctc,
+            rtok,
           ];
         },
       ];
     })
     // api: updateRemoteCtc
     //  - update remote contract
+    // .  + remove remote by setting remote to self
+    // .  + try remote else fail with state unchanged
     .api_(a.updateRemoteCtc, (msg) => {
       check(this === s.manager, "only manager can update remote contract");
       return [
         (k) => {
           k(null);
-          if(msg != getContract()) {
-            return [s, MContract.Some(msg)];
+          if (msg != getContract()) {
+            const info = rPInfo(msg);
+            const { tokB } = info;
+            return [
+              {
+                ...s,
+                remoteCtc: msg,
+                remoteToken: tokB,
+              },
+              MContract.Some(msg),
+              MToken.Some(tokB),
+            ];
           } else {
-            return [s, MContract.None()];
+            return [
+              { ...s, remoteCtc: getContract(), remoteToken: pToken },
+              MContract.None(),
+              MToken.None(),
+            ];
           }
         },
       ];
@@ -299,6 +363,7 @@ export const App = (map) => {
               manager: msg,
             },
             mctc,
+            rtok,
           ];
         },
       ];
@@ -309,7 +374,7 @@ export const App = (map) => {
       check(isNone(mctc), "remote contract set");
       check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
       return [
-        [msg * s.price, [0, token]],
+        [msg * s.price, [0, token], [0, pToken]],
         (k) => {
           k(null);
           const fee = (s.rate * msg * s.price) / 400; // > 0.25%
@@ -322,17 +387,18 @@ export const App = (map) => {
               tokenAmount: s.tokenAmount - msg * s.tokenUnit,
             },
             mctc,
+            rtok,
           ];
         },
       ];
     })
-        // api: buy (remote)
+    // api: buy (remote)
     //  - buy token (remote)
     .api_(a.buyRemote, (recv, inTok, outCap) => {
-    check(isSome(mctc), "remote contract not set");
+      check(isSome(mctc), "remote contract not set");
       check(s.tokenAmount > 0, "No tokens left");
       return [
-        [inTok, [0, token]],
+        [inTok, [0, token], [0, pToken]],
         (k) => {
           k(null);
 
@@ -368,12 +434,80 @@ export const App = (map) => {
                 ...s,
                 tokenAmount: s.tokenAmount - cap * s.tokenUnit,
               },
-              mctc
+              mctc,
+              rtok,
             ];
           } else {
             transfer([inTok]).to(this);
-            return [s, mctc];
+            return [s, mctc, rtok];
           }
+        },
+      ];
+    })
+    // api: buy (remote)
+    //  - buy token (remote)
+    .api_(a.buyRemoteToken, (recv, msg) => {
+      check(isSome(mctc), "remote contract not set");
+      check(isSome(rtok), "remote token not set");
+      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
+      check(
+        s.remoteToken == pToken,
+        "remote token does not match payment token"
+      );
+      return [
+        [
+          0,
+          [0, token],
+          [s.price * msg + (s.price * msg * s.rate) / 400, pToken],
+        ],
+        (k) => {
+          k(null);
+          transfer([
+            [(s.price * msg * s.rate) / 400 + s.safeAmount, pToken],
+          ]).to(addr);
+          transfer([[s.price * msg, pToken]]).to(s.manager);
+          transfer(msg * s.tokenUnit, token).to(recv);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
+              safeAmount: 0,
+            },
+            mctc,
+            rtok,
+          ];
+        },
+      ];
+    })
+    // api: buy (remote)
+    //  - buy token (remote)
+    .api_(a.safeBuyRemoteToken, (recv, msg) => {
+      check(isSome(mctc), "remote contract not set");
+      check(isSome(rtok), "remote token not set");
+      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
+      check(
+        s.remoteToken == pToken,
+        "remote token does not match payment token"
+      );
+      return [
+        [
+          0,
+          [0, token],
+          [s.price * msg + (s.price * msg * s.rate) / 400, pToken],
+        ],
+        (k) => {
+          k(null);
+          transfer([[s.price * msg, pToken]]).to(s.manager);
+          transfer(msg * s.tokenUnit, token).to(recv);
+          return [
+            {
+              ...s,
+              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
+              safeAmount: s.safeAmount + (s.price * msg * s.rate) / 400,
+            },
+            mctc,
+            rtok,
+          ];
         },
       ];
     })
@@ -393,6 +527,7 @@ export const App = (map) => {
               tokenSupply: 0,
             },
             mctc,
+            rtok,
           ];
         },
       ];
@@ -401,6 +536,7 @@ export const App = (map) => {
   e.appClose();
   commit();
   Relay.publish();
+  transfer([[s.safeAmount, pToken]]).to(addr);
   commit();
   exit();
 };
