@@ -1,5 +1,6 @@
 "reach 0.1";
 "use strict";
+
 // -----------------------------------------------
 // Name: KINN Token Sale
 // Version: 0.3.0 - add direct remote token buy
@@ -7,9 +8,6 @@
 // ----------------------------------------------
 
 import {
-  State as BaseState,
-  Params as BaseParams,
-  TokenState,
   view,
   baseState,
   baseEvents,
@@ -19,7 +17,15 @@ import {
   min
 } from "@KinnFoundation/base#base-v0.1.11r16:interface.rsh";
 
+import {
+  State,
+  Params as SaleParams,
+  api as saleApi
+} from "@KinnFoundation/sale#sale-v0.1.11r14:interface.rsh";
+
 import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r2:interface.rsh";
+
+import { MintParams } from "@KinnFoundation/mint#mint-v0.1.11r1:interface.rsh";
 
 // CONSTANTS
 
@@ -27,99 +33,20 @@ const SERIAL_VER = 0;
 
 // TYPES
 
-export const SaleState = Struct([
-  ["tokenUnit", UInt], // token unit
-  ["tokenSupply", UInt], // token supply
-  ["price", UInt], // price
-  ["rate", UInt], // rate
-]);
-
-export const RemoteState = Struct([
-  ["remoteCtc", Contract],
-  ["remoteToken", Token],
-]);
-
-export const SafeState = Struct([
-  ["safeAmount", UInt],
-]);
-
-export const State = Struct([
-  ...Struct.fields(BaseState),
-  ...Struct.fields(TokenState),
-  ...Struct.fields(SaleState),
-  ...Struct.fields(RemoteState),
-  ...Struct.fields(SafeState),
-]);
-
-export const SaleParams = Object({
-  tokenAmount: UInt, // token amount
-  tokenUnit: UInt, // token unit
-  price: UInt, // price per token
-  rate: UInt, // rate per token
-});
-
-export const RemoteParams = Object({
-  remoteCtc: Contract,
-});
-
 export const Params = Object({
-  ...Object.fields(BaseParams),
   ...Object.fields(SaleParams),
-  ...Object.fields(RemoteParams),
+  ...Object.fields(MintParams),
 });
 
 // FUN
 
-const fBuy = Fun([Address, UInt], Null);
-const fBuyRemote = Fun([Address, UInt, UInt], Null);
-const fBuyRemoteToken = Fun([Address, UInt], Null);
-const fSafeBuyRemoteToken = Fun([Address, UInt], Null);
-const fClose = Fun([Address], Null); // manager only
-const fGrant = Fun([Address], Null); // manager only
-const fUpdatePrice = Fun([UInt], Null); // manager only
-const fUpdateTokenUnit = Fun([UInt], Null); // manager only
-const fUpdateRemoteCtc = Fun([Contract], Null); // manager only
-const fDeposit = Fun([UInt], Null); // manager only
-const fWithdraw = Fun([Address, UInt], Null); // manager only
-const fTouch = Fun([Address], Null); // manager only
-
-// REMOTE FUN
-
-export const rBuy = (ctc, addr, amt) => {
-  const r = remote(ctc, { buy: fBuy });
-  return r.buy(addr, amt);
-};
-
-export const rBuyRemote = (ctc, addr, amt, cap) => {
-  const r = remote(ctc, { buyRemote: fBuyRemote });
-  return r.buyRemote(addr, amt, cap);
-};
-
-export const rBuyRemoteToken = (ctc, addr, amt) => {
-  const r = remote(ctc, { buyRemoteToken: fBuyRemoteToken });
-  return r.buyRemote(addr, amt);
-};
-
-export const rSafeBuyRemoteToken = (ctc, addr, amt) => {
-  const r = remote(ctc, { safeBuyRemoteToken: fSafeBuyRemoteToken });
-  return r.buyRemote(addr, amt);
-};
+const fClose = Fun([], Null); // manager only
 
 // API
 
 export const api = {
-  buy: fBuy,
-  buyRemote: fBuyRemote,
-  buyRemoteToken: fBuyRemoteToken,
-  safeBuyRemoteToken: fSafeBuyRemoteToken,
+  ...saleApi,
   close: fClose,
-  grant: fGrant,
-  updatePrice: fUpdatePrice,
-  updateTokenUnit: fUpdateTokenUnit,
-  updateRemoteCtc: fUpdateRemoteCtc,
-  deposit: fDeposit,
-  withdraw: fWithdraw,
-  touch: fTouch,
 };
 
 // CONTRACT
@@ -135,27 +62,52 @@ export const Views = () => [View(view(State))];
 export const Api = () => [API(api)];
 export const App = (map) => {
   const [
-    { amt, ttl, tok0: token, tok1: pToken },
+    { amt, ttl, tok0: pToken },
     [addr, _],
     [Manager, Relay],
     [v],
     [a],
     [e],
   ] = map;
-
   Manager.only(() => {
-    const { tokenAmount, tokenUnit, price, rate, remoteCtc } = declassify(
-      interact.getParams()
-    );
+    const {
+      tokenAmount,
+      tokenUnit,
+      price,
+      rate,
+      remoteCtc,
+      /*MintParms*/
+      name,
+      symbol,
+      url,
+      metadata,
+      decimals,
+    } = declassify(interact.getParams());
   });
-  Manager.publish(tokenAmount, tokenUnit, price, rate, remoteCtc)
-    .pay([amt + SERIAL_VER, [tokenAmount, token]])
+  Manager.publish(
+    tokenAmount,
+    tokenUnit,
+    price,
+    rate,
+    remoteCtc,
+    /*MintParms*/
+    name,
+    symbol,
+    url,
+    metadata,
+    decimals
+  )
+    .pay([amt + SERIAL_VER])
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
       check(price > 0, "price must be greater than 0");
       check(tokenUnit > 0, "tokenUnit must be greater than 0");
       check(
-        tokenAmount % tokenUnit === 0,
+        tokenUnit <= tokenAmount,
+        "tokenUnit must be less than or equal to tokenAmount"
+      );
+      check(
+        tokenAmount % tokenUnit == 0,
         "tokenAmount must be divisible by tokenUnit"
       );
       check(rate >= 1, "rate must be greater than or equal to 1");
@@ -166,7 +118,16 @@ export const App = (map) => {
       commit();
       exit();
     });
-  transfer(amt + SERIAL_VER).to(addr);
+  transfer([amt + SERIAL_VER]).to(addr);
+  const token = new Token({
+    name: name,
+    symbol: symbol,
+    url: url,
+    metadata: metadata,
+    supply: tokenAmount,
+    decimals,
+  });
+  check(token.supply() === tokenAmount, "token has supply");
   e.appLaunch();
 
   const initialState = {
@@ -198,13 +159,15 @@ export const App = (map) => {
     .define(() => {
       v.state.set(State.fromObject(s));
     })
-    // TOKEN BALANCE
+    // TOKEN
+    .invariant(token.supply() == tokenAmount, "token supply accurate")
+    .invariant(!token.destroyed(), "token not destroyed")
     .invariant(
       implies(!s.closed, balance(token) == s.tokenAmount),
       "token balance accurate before close"
     )
     .invariant(
-      implies(s.closed, balance(token) == 0),
+      implies(s.closed, balance(token) == tokenAmount),
       "token balance accurate after close"
     )
     // P-TOKEN BALANCE
@@ -216,7 +179,8 @@ export const App = (map) => {
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
     .paySpec([token, pToken])
-    // api: touch
+    // api: touch (manager only)
+    // - send any untracked tokens to receiver
     .api_(a.touch, (recv) => {
       check(this == s.manager, "only manager can touch");
       return [
@@ -231,7 +195,7 @@ export const App = (map) => {
         },
       ];
     })
-    // api: deposit
+    // api: deposit (manager only)
     //  - deposit tokens
     .api_(a.deposit, (msg) => {
       check(this == s.manager, "only manager can deposit");
@@ -252,7 +216,7 @@ export const App = (map) => {
         },
       ];
     })
-    // api: withdraw
+    // api: withdraw (manager only)
     //  - withdraw tokens
     .api_(a.withdraw, (recv, msg) => {
       check(this == s.manager, "only manager can withdraw");
@@ -277,7 +241,7 @@ export const App = (map) => {
         },
       ];
     })
-    // api: update
+    // api: update (manager only)
     //  - update price
     .api_(a.updatePrice, (msg) => {
       check(this === s.manager, "only manager can update");
@@ -296,7 +260,7 @@ export const App = (map) => {
         },
       ];
     })
-    // api: updateTokenUnit
+    // api: updateTokenUnit (manager only)
     //  - update token unit
     .api_(a.updateTokenUnit, (msg) => {
       check(this === s.manager, "only manager can update");
@@ -319,7 +283,7 @@ export const App = (map) => {
         },
       ];
     })
-    // api: updateRemoteCtc
+    // api: updateRemoteCtc (manager only)
     //  - update remote contract
     // .  + remove remote by setting remote to self
     // .  + try remote else fail with state unchanged
@@ -350,7 +314,7 @@ export const App = (map) => {
         },
       ];
     })
-    // api: grant
+    // api: grant (manager only)
     //  - asign another account as manager
     .api_(a.grant, (msg) => {
       check(this === s.manager, "only manager can grant");
@@ -369,7 +333,7 @@ export const App = (map) => {
       ];
     })
     // api: buy
-    //  - buy token
+    //  - buy token (ALGO)
     .api_(a.buy, (recv, msg) => {
       check(isNone(mctc), "remote contract set");
       check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
@@ -393,7 +357,7 @@ export const App = (map) => {
       ];
     })
     // api: buy (remote)
-    //  - buy token (remote)
+    //  - buy token (ALGO)
     .api_(a.buyRemote, (recv, inTok, outCap) => {
       check(isSome(mctc), "remote contract not set");
       check(s.tokenAmount > 0, "No tokens left");
@@ -445,7 +409,7 @@ export const App = (map) => {
       ];
     })
     // api: buy (remote)
-    //  - buy token (remote)
+    //  - buy (TOKEN)
     .api_(a.buyRemoteToken, (recv, msg) => {
       check(isSome(mctc), "remote contract not set");
       check(isSome(rtok), "remote token not set");
@@ -480,7 +444,7 @@ export const App = (map) => {
       ];
     })
     // api: buy (remote)
-    //  - buy token (remote)
+    //  - safe buy token (TOKEN)
     .api_(a.safeBuyRemoteToken, (recv, msg) => {
       check(isSome(mctc), "remote contract not set");
       check(isSome(rtok), "remote token not set");
@@ -511,20 +475,21 @@ export const App = (map) => {
         },
       ];
     })
-    // api: close
+    // api: close (manager only)
     //  - close contract
-    .api_(a.close, (recv) => {
+    .api_(a.close, () => {
       check(this == s.manager, "only manager can close");
+      check(s.tokenAmount == 0, "cannot close until all tokens are sold");
       return [
+        [0, [tokenAmount, token], [0, pToken]],
         (k) => {
           k(null);
-          transfer([[s.tokenAmount, token]]).to(recv);
           return [
             {
               ...s,
               closed: true,
-              tokenAmount: 0,
-              tokenSupply: 0,
+              tokenAmount: tokenAmount,
+              tokenSupply: tokenAmount,
             },
             mctc,
             rtok,
@@ -536,6 +501,8 @@ export const App = (map) => {
   e.appClose();
   commit();
   Relay.publish();
+  token.burn();
+  token.destroy();
   transfer([[s.safeAmount, pToken]]).to(addr);
   commit();
   exit();
