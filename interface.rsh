@@ -2,8 +2,8 @@
 "use strict";
 
 // -----------------------------------------------
-// Name: KINN Token Sale
-// Version: 0.3.0 - add direct remote token buy
+// Name: KINN Mint Token Sale
+// Version: 0.4.0 - mint sale initial
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -21,7 +21,7 @@ import {
   State,
   Params as SaleParams,
   api as saleApi
-} from "@KinnFoundation/sale#sale-v0.1.11r14:interface.rsh";
+} from "@KinnFoundation/sale#sale-v0.1.11r15:interface.rsh";
 
 import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r2:interface.rsh";
 
@@ -334,25 +334,40 @@ export const App = (map) => {
     })
     // api: buy
     //  - buy token (ALGO)
-    .api_(a.buy, (recv, msg) => {
+    .api_(a.buy, (recv, inTok, outCap) => {
       check(isNone(mctc), "remote contract set");
-      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
+      check(
+        (inTok / s.price) * s.tokenUnit <= s.tokenAmount,
+        "not enough tokens"
+      );
       return [
-        [msg * s.price, [0, token], [0, pToken]],
+        [inTok, [0, token], [0, pToken]],
         (k) => {
           k(null);
-          const fee = (s.rate * msg * s.price) / 400; // > 0.25%
-          transfer(msg * s.price - fee).to(s.manager);
-          transfer(fee).to(addr);
-          transfer(msg * s.tokenUnit, token).to(recv);
-          return [
-            {
-              ...s,
-              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
-            },
-            mctc,
-            rtok,
-          ];
+          const fee = ((inTok / s.price) * s.price * s.rate) / 400; // > 0.25%
+          const avail = inTok - fee;
+
+          const inCap = avail / s.price;
+
+          const cap = min(inCap, outCap);
+
+          if (cap * s.tokenUnit <= s.tokenAmount && cap > 0) {
+            const change = avail - cap * s.price; // change to return to sender for exchange
+            transfer(avail - change).to(s.manager);
+            transfer([change, [cap * s.tokenUnit, token]]).to(recv);
+            transfer(fee).to(addr);
+            return [
+              {
+                ...s,
+                tokenAmount: s.tokenAmount - cap * s.tokenUnit,
+              },
+              mctc,
+              rtok,
+            ];
+          } else {
+            transfer(inTok).to(recv);
+            return [s, mctc, rtok];
+          }
         },
       ];
     })
@@ -410,68 +425,96 @@ export const App = (map) => {
     })
     // api: buy (remote)
     //  - buy (TOKEN)
-    .api_(a.buyRemoteToken, (recv, msg) => {
+    .api_(a.buyRemoteToken, (recv, inTok, outCap) => {
       check(isSome(mctc), "remote contract not set");
       check(isSome(rtok), "remote token not set");
-      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
+      check(
+        (inTok / s.price) * s.tokenUnit <= s.tokenAmount,
+        "not enough tokens"
+      );
       check(
         s.remoteToken == pToken,
         "remote token does not match payment token"
       );
       return [
-        [
-          0,
-          [0, token],
-          [s.price * msg + (s.price * msg * s.rate) / 400, pToken],
-        ],
+        [0, [0, token], [inTok, pToken]],
         (k) => {
           k(null);
-          transfer([
-            [(s.price * msg * s.rate) / 400 + s.safeAmount, pToken],
-          ]).to(addr);
-          transfer([[s.price * msg, pToken]]).to(s.manager);
-          transfer(msg * s.tokenUnit, token).to(recv);
-          return [
-            {
-              ...s,
-              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
-              safeAmount: 0,
-            },
-            mctc,
-            rtok,
-          ];
+
+          const fee = (inTok * s.rate) / 400; // > 0.25%
+
+          const avail = inTok - fee;
+
+          const inCap = avail / s.price;
+
+          const cap = min(inCap, outCap);
+
+          if (cap * s.tokenUnit <= s.tokenAmount && cap > 0) {
+            const change = avail - cap * s.price; // change to return to sender for exchange
+            transfer([[avail - change, pToken]]).to(s.manager); // payment to manager
+            transfer([[cap * s.tokenUnit, token]]).to(recv); // token exchange
+            transfer([[change, pToken]]).to(recv); // change to signer
+            transfer([[fee + s.safeAmount, pToken]]).to(addr); // fee to launcher
+            return [
+              {
+                ...s,
+                tokenAmount: s.tokenAmount - cap * s.tokenUnit,
+                safeAmount: 0,
+              },
+              mctc,
+              rtok,
+            ];
+          } else {
+            transfer([[inTok, pToken]]).to(this);
+            return [s, mctc, rtok];
+          }
         },
       ];
     })
     // api: buy (remote)
     //  - safe buy token (TOKEN)
-    .api_(a.safeBuyRemoteToken, (recv, msg) => {
+    .api_(a.safeBuyRemoteToken, (recv, inTok, outCap) => {
       check(isSome(mctc), "remote contract not set");
       check(isSome(rtok), "remote token not set");
-      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
+      check(
+        (inTok / s.price) * s.tokenUnit <= s.tokenAmount,
+        "not enough tokens"
+      );
       check(
         s.remoteToken == pToken,
         "remote token does not match payment token"
       );
       return [
-        [
-          0,
-          [0, token],
-          [s.price * msg + (s.price * msg * s.rate) / 400, pToken],
-        ],
+        [0, [0, token], [inTok, pToken]],
         (k) => {
           k(null);
-          transfer([[s.price * msg, pToken]]).to(s.manager);
-          transfer(msg * s.tokenUnit, token).to(recv);
-          return [
-            {
-              ...s,
-              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
-              safeAmount: s.safeAmount + (s.price * msg * s.rate) / 400,
-            },
-            mctc,
-            rtok,
-          ];
+
+          const fee = (inTok * s.rate) / 400; // > 0.25%
+
+          const avail = inTok - fee;
+
+          const inCap = avail / s.price;
+
+          const cap = min(inCap, outCap);
+
+          if (cap * s.tokenUnit <= s.tokenAmount && cap > 0) {
+            const change = avail - cap * s.price; // change to return to sender for exchange
+            transfer([[avail - change, pToken]]).to(s.manager); // payment to manager
+            transfer([[cap * s.tokenUnit, token]]).to(recv); // token exchange
+            transfer([[change, pToken]]).to(recv); // change to signer
+            return [
+              {
+                ...s,
+                tokenAmount: s.tokenAmount - cap * s.tokenUnit,
+                safeAmount: s.safeAmount + fee,
+              },
+              mctc,
+              rtok,
+            ];
+          } else {
+            transfer([[inTok, pToken]]).to(this);
+            return [s, mctc, rtok];
+          }
         },
       ];
     })
