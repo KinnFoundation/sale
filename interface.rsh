@@ -3,7 +3,7 @@
 
 // -----------------------------------------------
 // Name: KINN Mint Token Sale
-// Version: 0.5.0 - use sale with modes
+// Version: 0.5.1 - add mode to view
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -24,7 +24,7 @@ import {
   MODE_NET_ONLY,
   MODE_TOK_ONLY,
   MODE_NET_TOK
-} from "@KinnFoundation/sale#sale-v0.1.11r17:interface.rsh";
+} from "@KinnFoundation/sale#sale-v0.1.11r18:interface.rsh";
 
 import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r2:interface.rsh";
 
@@ -187,24 +187,6 @@ export const App = (map) => {
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
     .paySpec([token, pToken])
-    // api: touch (manager only)
-    // - send any untracked tokens to receiver
-    /*
-    .api_(a.touch, (recv) => {
-      check(this == s.manager, "only manager can touch");
-      return [
-        (k) => {
-          k(null);
-          transfer([
-            getUntrackedFunds(),
-            [getUntrackedFunds(token), token],
-            [getUntrackedFunds(pToken), pToken],
-          ]).to(recv);
-          return [s, mctc, rtok];
-        },
-      ];
-    })
-    */
     // api: deposit (manager only)
     //  - deposit tokens
     .api_(a.deposit, (msg) => {
@@ -437,49 +419,6 @@ export const App = (map) => {
         },
       ];
     })
-    /*
-    .api_(a.safeBuyToken, (recv, inTok, outCap) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in net mode");
-      check(isNone(mctc), "remote contract set");
-      check(
-        (inTok / s.price) * s.tokenUnit <= s.tokenAmount,
-        "not enough tokens"
-      );
-      return [
-        [0, [0, token], [inTok, pToken]],
-        (k) => {
-          k(null);
-          const fee = ((inTok / s.price) * s.price * s.rate) / 400; // > 0.25%
-          const avail = inTok - fee;
-
-          const inCap = avail / s.price;
-
-          const cap = min(inCap, outCap);
-
-          if (cap * s.tokenUnit <= s.tokenAmount && cap > 0) {
-            const change = avail - cap * s.price; // change to return to sender for exchange
-            transfer([[avail - change, pToken]]).to(s.manager);
-            transfer([
-              [change, pToken],
-              [cap * s.tokenUnit, token],
-            ]).to(recv);
-            return [
-              {
-                ...s,
-                tokenAmount: s.tokenAmount - cap * s.tokenUnit,
-                safeAmount: s.safeAmount + fee,
-              },
-              mctc,
-              rtok,
-            ];
-          } else {
-            transfer([[inTok, pToken]]).to(recv);
-            return [s, mctc, rtok];
-          }
-        },
-      ];
-    })
-    */
     // api: buy token
     //  - buy token
     .api_(a.buyTokenSelf, (msg) => {
