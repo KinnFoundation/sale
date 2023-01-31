@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.5.1 - fix safe apis 
+// Version: 0.5.2 - export modes
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -25,9 +25,9 @@ import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r2:interface.rsh";
 
 const SERIAL_VER = 0;
 
-const MODE_NET_ONLY = 0;
-const MODE_TOK_ONLY = 1;
-const MODE_NET_TOK = 2;
+export const MODE_NET_ONLY = 0;
+export const MODE_TOK_ONLY = 1;
+export const MODE_NET_TOK = 2;
 
 // TYPES
 
