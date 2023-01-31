@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.5.2 - export modes
+// Version: 0.5.3 - cleanup, add mode to view
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -43,6 +43,10 @@ export const RemoteState = Struct([
   ["remoteToken", Token],
 ]);
 
+export const ModeState = Struct([
+  ["mode", UInt], // 0: net, 1: tok, 2: net+tok
+]);
+
 export const SafeState = Struct([["safeAmount", UInt]]);
 
 export const State = Struct([
@@ -50,6 +54,7 @@ export const State = Struct([
   ...Struct.fields(TokenState),
   ...Struct.fields(SaleState),
   ...Struct.fields(RemoteState),
+  ...Struct.fields(ModeState),
   ...Struct.fields(SafeState),
 ]);
 
@@ -78,12 +83,9 @@ export const Params = Object({
 // FUN
 
 const fBuy = Fun([Address, UInt, UInt], Null); // buy
-//const fBuyRecv = Fun([Address, UInt], Null); // buy
 const fBuySelf = Fun([UInt], Null); // buy
 const fBuyToken = Fun([Address, UInt, UInt], Null); // buy
 const fSafeBuyToken = Fun([Address, UInt, UInt], Null); // buy
-//const fBuyTokenRecv = Fun([Address, UInt], Null); // buy
-//const fSafeBuyTokenRecv = Fun([Address, UInt], Null); // buy
 const fBuyTokenSelf = Fun([UInt], Null); // buy
 const fSafeBuyTokenSelf = Fun([UInt], Null); // buy
 const fBuyRemote = Fun([Address, UInt, UInt], Null); // buy
@@ -92,23 +94,16 @@ const fSafeBuyRemoteToken = Fun([Address, UInt, UInt], Null); // buy
 const fClose = Fun([Address], Null); // manager only
 const fGrant = Fun([Address], Null); // manager only
 const fUpdate = Fun([UInt, UInt, Contract, UInt], Null); // manager only
-//const fUpdatePrice = Fun([UInt], Null); // manager only
-//const fUpdateTokenUnit = Fun([UInt], Null); // manager only
-//const fUpdateRemoteCtc = Fun([Contract], Null); // manager only
 const fDeposit = Fun([UInt], Null); // manager only
 const fWithdraw = Fun([Address, UInt], Null); // manager only
-//const fTouch = Fun([Address], Null); // manager only
 
 // API
 
 export const api = {
   buy: fBuy,
-  //buyRecv: fBuyRecv,
   buySelf: fBuySelf,
   buyToken: fBuyToken,
   safeBuyToken: fSafeBuyToken,
-  //buyTokenRecv: fBuyTokenRecv,
-  //safeBuyTokenRecv: fSafeBuyTokenRecv,
   buyTokenSelf: fBuyTokenSelf,
   safeBuyTokenSelf: fSafeBuyTokenSelf,
   buyRemote: fBuyRemote,
@@ -117,12 +112,8 @@ export const api = {
   close: fClose,
   grant: fGrant,
   update: fUpdate,
-  //updatePrice: fUpdatePrice,
-  //updateTokenUnit: fUpdateTokenUnit,
-  //updateRemoteCtc: fUpdateRemoteCtc,
   deposit: fDeposit,
   withdraw: fWithdraw,
-  //touch: fTouch,
 };
 
 // CONTRACT
@@ -222,23 +213,6 @@ export const App = (map) => {
     .invariant(balance() == 0, "balance accurate")
     .while(!s.closed)
     .paySpec([token, pToken])
-    // api: touch
-    /*
-    .api_(a.touch, (recv) => {
-      check(this == s.manager, "only manager can touch");
-      return [
-        (k) => {
-          k(null);
-          transfer([
-            getUntrackedFunds(),
-            [getUntrackedFunds(token), token],
-            [getUntrackedFunds(pToken), pToken],
-          ]).to(recv);
-          return [s, mctc, rtok];
-        },
-      ];
-    })
-    */
     // api: deposit
     //  - deposit tokens
     .api_(a.deposit, (msg) => {
@@ -330,85 +304,6 @@ export const App = (map) => {
         },
       ];
     })
-    // api: update
-    //  - update price
-    /*
-    .api_(a.updatePrice, (msg) => {
-      check(this === s.manager, "only manager can update");
-      check(msg > 0, "price must be greater than 0");
-      return [
-        (k) => {
-          k(null);
-          return [
-            {
-              ...s,
-              price: msg,
-            },
-            mctc,
-            rtok,
-          ];
-        },
-      ];
-    })
-    */
-    // api: updateTokenUnit
-    //  - update token unit
-    /*
-    .api_(a.updateTokenUnit, (msg) => {
-      check(this === s.manager, "only manager can update");
-      check(msg > 0, "tokenUnit must be greater than 0");
-      check(
-        s.tokenAmount % msg === 0,
-        "tokenAmount must be divisible by tokenUnit"
-      );
-      return [
-        (k) => {
-          k(null);
-          return [
-            {
-              ...s,
-              tokenUnit: msg,
-            },
-            mctc,
-            rtok,
-          ];
-        },
-      ];
-    })
-    */
-    // api: updateRemoteCtc
-    //  - update remote contract
-    // .  + remove remote by setting remote to self
-    // .  + try remote else fail with state unchanged
-    /*
-    .api_(a.updateRemoteCtc, (msg) => {
-      check(this === s.manager, "only manager can update remote contract");
-      return [
-        (k) => {
-          k(null);
-          if (msg != getContract()) {
-            const info = rPInfo(msg);
-            const { tokB } = info;
-            return [
-              {
-                ...s,
-                remoteCtc: msg,
-                remoteToken: tokB,
-              },
-              MContract.Some(msg),
-              MToken.Some(tokB),
-            ];
-          } else {
-            return [
-              { ...s, remoteCtc: getContract(), remoteToken: pToken },
-              MContract.None(),
-              MToken.None(),
-            ];
-          }
-        },
-      ];
-    })
-    */
     // api: grant
     //  - asign another account as manager
     .api_(a.grant, (msg) => {
@@ -469,35 +364,6 @@ export const App = (map) => {
     })
     // api: buy
     //  - buy token (ALGO)
-    /*
-    .api_(a.buyRecv, (recv, msg) => {
-      check(mode === MODE_NET_ONLY, "only can buy in net mode");
-      check(isNone(mctc), "remote contract set");
-      check(msg > 0, "must buy at least 1 token");
-      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
-      return [
-        [msg * s.price, [0, token], [0, pToken]],
-        (k) => {
-          k(null);
-          const fee = (s.rate * msg * s.price) / 400; // > 0.25%
-          const avail = msg * s.price - fee;
-          transfer(avail).to(s.manager);
-          transfer(fee).to(addr);
-          transfer([[msg * s.tokenUnit, token]]).to(recv);
-          return [
-            {
-              ...s,
-              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
-            },
-            mctc,
-            rtok,
-          ];
-        },
-      ];
-    })
-    */
-    // api: buy
-    //  - buy token (ALGO)
     .api_(a.buySelf, (msg) => {
       check(mode === MODE_NET_ONLY, "only can buy in net mode");
       check(isNone(mctc), "remote contract set");
@@ -555,7 +421,7 @@ export const App = (map) => {
               {
                 ...s,
                 tokenAmount: s.tokenAmount - cap * s.tokenUnit,
-                safeAmount: 0
+                safeAmount: 0,
               },
               mctc,
               rtok,
@@ -610,64 +476,6 @@ export const App = (map) => {
         },
       ];
     })
-    // api: buy token
-    //  - buy token
-    /*
-    .api_(a.buyTokenRecv, (recv, msg) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in tok mode");
-      check(isNone(mctc), "remote contract set");
-      check(msg > 0, "must buy at least 1 token");
-      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
-      return [
-        [0, [0, token], [msg * s.price, pToken]],
-        (k) => {
-          k(null);
-          const fee = (s.rate * msg * s.price) / 400; // > 0.25%
-          const avail = msg * s.price - fee;
-          transfer([[avail, pToken]]).to(s.manager);
-          transfer([[fee, pToken]]).to(addr);
-          transfer([[msg * s.tokenUnit, token]]).to(recv);
-          return [
-            {
-              ...s,
-              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
-            },
-            mctc,
-            rtok,
-          ];
-        },
-      ];
-    })
-    */
-    // api: buy token
-    //  - buy token
-    /*
-    .api_(a.safeBuyTokenRecv, (recv, msg) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in tok mode");
-      check(isNone(mctc), "remote contract set");
-      check(msg > 0, "must buy at least 1 token");
-      check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
-      return [
-        [0, [0, token], [msg * s.price, pToken]],
-        (k) => {
-          k(null);
-          const fee = (s.rate * msg * s.price) / 400; // > 0.25%
-          const avail = msg * s.price - fee;
-          transfer([[avail, pToken]]).to(s.manager);
-          transfer([[msg * s.tokenUnit, token]]).to(recv);
-          return [
-            {
-              ...s,
-              tokenAmount: s.tokenAmount - msg * s.tokenUnit,
-              safeAmount: s.safeAmount + fee,
-            },
-            mctc,
-            rtok,
-          ];
-        },
-      ];
-    })
-    */
     // api: buy token
     //  - buy token
     .api_(a.buyTokenSelf, (msg) => {
