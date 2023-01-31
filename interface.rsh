@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.4.0 - update buy api
+// Version: 0.5.1 - fix safe apis 
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -550,11 +550,12 @@ export const App = (map) => {
               [change, pToken],
               [cap * s.tokenUnit, token],
             ]).to(recv);
-            transfer([[fee, pToken]]).to(addr);
+            transfer([[fee + s.safeAmount, pToken]]).to(addr);
             return [
               {
                 ...s,
                 tokenAmount: s.tokenAmount - cap * s.tokenUnit,
+                safeAmount: 0
               },
               mctc,
               rtok,
@@ -681,12 +682,13 @@ export const App = (map) => {
           const fee = (s.rate * msg * s.price) / 400; // > 0.25%
           const avail = msg * s.price - fee;
           transfer([[avail, pToken]]).to(s.manager);
-          transfer([[fee, pToken]]).to(addr);
           transfer([[msg * s.tokenUnit, token]]).to(this);
+          transfer([[fee + s.safeAmount, pToken]]).to(addr);
           return [
             {
               ...s,
               tokenAmount: s.tokenAmount - msg * s.tokenUnit,
+              safeAmount: 0,
             },
             mctc,
             rtok,
