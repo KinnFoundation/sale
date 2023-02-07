@@ -16,7 +16,7 @@ import {
   MContract,
   MToken,
   max,
-  min,
+  min
 } from "@KinnFoundation/base#base-v0.1.11r16:interface.rsh";
 
 import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r2:interface.rsh";
