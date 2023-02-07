@@ -2,7 +2,7 @@
 "use strict";
 // -----------------------------------------------
 // Name: KINN Token Sale
-// Version: 0.5.3 - cleanup, add mode to view
+// Version: 0.5.4 - allow net tok mode to buy token
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -16,7 +16,7 @@ import {
   MContract,
   MToken,
   max,
-  min
+  min,
 } from "@KinnFoundation/base#base-v0.1.11r16:interface.rsh";
 
 import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r2:interface.rsh";
@@ -100,15 +100,15 @@ const fWithdraw = Fun([Address, UInt], Null); // manager only
 // API
 
 export const api = {
-  buy: fBuy,
-  buySelf: fBuySelf,
-  buyToken: fBuyToken,
-  safeBuyToken: fSafeBuyToken,
-  buyTokenSelf: fBuyTokenSelf,
-  safeBuyTokenSelf: fSafeBuyTokenSelf,
-  buyRemote: fBuyRemote,
-  buyRemoteToken: fBuyRemoteToken,
-  safeBuyRemoteToken: fSafeBuyRemoteToken,
+  buy: fBuy, // NET_ONLY
+  buySelf: fBuySelf, // NET_ONLY
+  buyToken: fBuyToken, // TOK_ONLY | NET_TOK
+  safeBuyToken: fSafeBuyToken, // TOK_ONLY | NET_TOK
+  buyTokenSelf: fBuyTokenSelf, // TOK_ONLY | NET_TOK
+  safeBuyTokenSelf: fSafeBuyTokenSelf, // TOK_ONLY | NET_TOK
+  buyRemote: fBuyRemote, // NET_TOK
+  buyRemoteToken: fBuyRemoteToken, // NET_TOK
+  safeBuyRemoteToken: fSafeBuyRemoteToken, // NET_TOK
   close: fClose,
   grant: fGrant,
   update: fUpdate,
@@ -392,8 +392,8 @@ export const App = (map) => {
     // api: buy token
     //  - buy token
     .api_(a.buyToken, (recv, inTok, outCap) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in net mode");
-      check(isNone(mctc), "remote contract set");
+      check(mode !== MODE_NET_ONLY, "only can buy in net mode");
+      //check(isNone(mctc), "remote contract set");
       check(
         (inTok / s.price) * s.tokenUnit <= s.tokenAmount,
         "not enough tokens"
@@ -404,11 +404,8 @@ export const App = (map) => {
           k(null);
           const fee = ((inTok / s.price) * s.price * s.rate) / 400; // > 0.25%
           const avail = inTok - fee;
-
           const inCap = avail / s.price;
-
           const cap = min(inCap, outCap);
-
           if (cap * s.tokenUnit <= s.tokenAmount && cap > 0) {
             const change = avail - cap * s.price; // change to return to sender for exchange
             transfer([[avail - change, pToken]]).to(s.manager);
@@ -436,8 +433,8 @@ export const App = (map) => {
     // api: buy token
     //  - buy token
     .api_(a.safeBuyToken, (recv, inTok, outCap) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in net mode");
-      check(isNone(mctc), "remote contract set");
+      check(mode !== MODE_NET_ONLY, "only can buy in net mode");
+      //check(isNone(mctc), "remote contract set");
       check(
         (inTok / s.price) * s.tokenUnit <= s.tokenAmount,
         "not enough tokens"
@@ -448,11 +445,8 @@ export const App = (map) => {
           k(null);
           const fee = ((inTok / s.price) * s.price * s.rate) / 400; // > 0.25%
           const avail = inTok - fee;
-
           const inCap = avail / s.price;
-
           const cap = min(inCap, outCap);
-
           if (cap * s.tokenUnit <= s.tokenAmount && cap > 0) {
             const change = avail - cap * s.price; // change to return to sender for exchange
             transfer([[avail - change, pToken]]).to(s.manager);
@@ -479,8 +473,8 @@ export const App = (map) => {
     // api: buy token
     //  - buy token
     .api_(a.buyTokenSelf, (msg) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in tok mode");
-      check(isNone(mctc), "remote contract set");
+      check(mode !== MODE_NET_ONLY, "only can buy in tok mode");
+      //check(isNone(mctc), "remote contract set");
       check(msg > 0, "must buy at least 1 token");
       check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
       return [
@@ -507,8 +501,8 @@ export const App = (map) => {
     // api: buy token
     //  - buy token
     .api_(a.safeBuyTokenSelf, (msg) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in tok mode");
-      check(isNone(mctc), "remote contract set");
+      check(mode !== MODE_NET_ONLY, "only can buy in tok mode");
+      //check(isNone(mctc), "remote contract set");
       check(msg > 0, "must buy at least 1 token");
       check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
       return [
