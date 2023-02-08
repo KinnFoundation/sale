@@ -3,7 +3,7 @@
 
 // -----------------------------------------------
 // Name: KINN Mint Token Sale
-// Version: 0.5.1 - add mode to view
+// Version: 0.5.2 - allow net tok to buy tokens
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // ----------------------------------------------
 
@@ -24,7 +24,7 @@ import {
   MODE_NET_ONLY,
   MODE_TOK_ONLY,
   MODE_NET_TOK
-} from "@KinnFoundation/sale#sale-v0.1.11r18:interface.rsh";
+} from "@KinnFoundation/sale#sale-v0.1.11r19:interface.rsh";
 
 import { rPInfo } from "@ZestBloom/humble#humble-v0.1.11r2:interface.rsh";
 
@@ -368,8 +368,7 @@ export const App = (map) => {
     // api: buy token
     //  - buy token
     .api_(a.buyToken, (recv, inTok, outCap) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in net mode");
-      check(isNone(mctc), "remote contract set");
+      check(mode !== MODE_NET_ONLY, "only can buy in net mode");
       check(
         (inTok / s.price) * s.tokenUnit <= s.tokenAmount,
         "not enough tokens"
@@ -422,8 +421,7 @@ export const App = (map) => {
     // api: buy token
     //  - buy token
     .api_(a.buyTokenSelf, (msg) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in tok mode");
-      check(isNone(mctc), "remote contract set");
+      check(mode !== MODE_NET_ONLY, "only can buy in tok mode");
       check(msg > 0, "must buy at least 1 token");
       check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
       return [
@@ -450,8 +448,7 @@ export const App = (map) => {
     // api: buy token
     //  - buy token
     .api_(a.safeBuyTokenSelf, (msg) => {
-      check(mode === MODE_TOK_ONLY, "only can buy in tok mode");
-      check(isNone(mctc), "remote contract set");
+      check(mode !== MODE_NET_ONLY, "only can buy in tok mode");
       check(msg > 0, "must buy at least 1 token");
       check(msg * s.tokenUnit <= s.tokenAmount, "not enough tokens");
       return [
